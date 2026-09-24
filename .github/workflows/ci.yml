@@ -1,0 +1,92 @@
+# https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions
+# https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-gradle
+
+name: CI
+
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: windows-latest
+          java: 21
+          arch: arm64
+          runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: gradle/actions/wrapper-validation@v6
+
+    - name: Setup Java 21
+      uses: actions/setup-java@v5
+      with:
+        java-version: ${{ matrix.java }}
+        distribution: temurin    # pre-installed on ubuntu-latest
+
+    - name: Cache Gradle
+      uses: ./.github/actions/cache-gradle
+
+
+        # test against
+        # - Java 8 (minimum requirement)
+        # - Java LTS versions (11, 17, ...)
+        # - latest Java version(s)
+
+    - name: Build with Java 11 LTS
+      if: github.repository == 'JFormDesigner/FlatLaf'
+      run: ./gradlew build clean -Dtoolchain=11
+
+    - name: Build with Java 17 LTS
+      if: github.repository == 'JFormDesigner/FlatLaf'
+      run: ./gradlew build clean -Dtoolchain=17
+
+    - name: Build with Java 21 LTS
+      if: github.repository == 'JFormDesigner/FlatLaf'
+      run: ./gradlew build clean -Dtoolchain=21
+
+    - name: Build with Java 25 LTS
+      if: github.repository == 'JFormDesigner/FlatLaf'
+      run: ./gradlew build clean -Dtoolchain=25
+
+    - name: Build with Java 26
+      if: github.repository == 'JFormDesigner/FlatLaf'
+      run: ./gradlew build clean -Dtoolchain=26
+
+
+        # build with Java 8 for snapshot
+        # (no Java 8 JDK exists for Windows on ARM64, so use the matrix Java version
+        #  as toolchain there; sources are still compiled with source/target 1.8)
+
+    - name: Build with Java 8
+      run: ./gradlew build ${{ (matrix.os == 'windows-latest' && matrix.arch == 
+        'arm64') && format('-Dtoolchain={0}', matrix.java) || '' }}
+
+    - name: Upload artifacts to GitHub Actions
+      uses: actions/upload-artifact@v7
+      with:
+        name: FlatLaf-build-artifacts
+        path: |
+          flatlaf-*/build/libs
+          flatlaf-*/flatlaf-*/build/libs
+          !**/*-javadoc.jar
+          !**/*-sources.jar
+
+
+    - name: Publish snapshot to Sonatype Central
+      if: |
+        github.repository == 'JFormDesigner/FlatLaf' &&
+        github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' || startsWith( github.ref, 'refs/heads/develop-' ))
+      run: ./gradlew publish -PskipFonts 
+        -Dorg.gradle.internal.publish.checksums.insecure=true 
+        -Dorg.gradle.parallel=false
+      env:
+        SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+        SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+
+
